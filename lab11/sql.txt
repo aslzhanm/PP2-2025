@@ -1,0 +1,118 @@
+
+Функция поиска по паттерну
+
+
+CREATE OR REPLACE FUNCTION search_phonebook(pattern TEXT)
+RETURNS TABLE(id INT, name TEXT, phone TEXT)
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT p.id, p.name::TEXT, p.phone::TEXT
+    FROM phonebook p
+    WHERE p.name ILIKE '%' || pattern || '%'
+       OR p.phone ILIKE '%' || pattern || '%';
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+
+***************************************************************************************
+
+
+Процедура добавления/обновления одного пользователя
+
+
+CREATE OR REPLACE PROCEDURE insert_or_update_user(p_name TEXT, p_phone TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM phonebook WHERE name = p_name) THEN
+        UPDATE phonebook SET phone = p_phone WHERE name = p_name;
+    ELSE
+        INSERT INTO phonebook(name, phone) VALUES (p_name, p_phone);
+    END IF;
+END;
+$$;
+
+
+
+****************************************************************************************
+
+
+Процедура массовой вставки с валидацией номеров
+
+
+CREATE OR REPLACE PROCEDURE insert_many_users(
+    names TEXT[],
+    phones TEXT[]
+)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    i INT;
+    invalid_entries TEXT := '';
+BEGIN
+    FOR i IN 1 .. array_length(names, 1) LOOP
+        IF phones[i] ~ '^\d{3,15}$' THEN  -- проверка, что номер состоит из 3-15 цифр
+            -- если пользователь уже есть — обновляем
+            IF EXISTS (SELECT 1 FROM phonebook WHERE name = names[i]) THEN
+                UPDATE phonebook SET phone = phones[i] WHERE name = names[i];
+            ELSE
+                INSERT INTO phonebook(name, phone) VALUES (names[i], phones[i]);
+            END IF;
+        ELSE
+            invalid_entries := invalid_entries || format('(%s, %s), ', names[i], phones[i]);
+        END IF;
+    END LOOP;
+
+    IF invalid_entries <> '' THEN
+        RAISE NOTICE 'Некорректные данные: %', left(invalid_entries, length(invalid_entries)-2);
+    END IF;
+END;
+$$;
+
+
+
+
+**************************************************************************************************
+
+
+Функция с пагинацией (LIMIT + OFFSET)
+
+
+
+CREATE OR REPLACE FUNCTION get_phonebook_page(p_limit INTEGER, p_offset INTEGER)
+RETURNS TABLE(id INT, name VARCHAR, phone VARCHAR)
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT p.id, p.name, p.phone
+    FROM phonebook p
+    ORDER BY p.id
+    LIMIT p_limit OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+
+
+*******************************************************************************************************
+
+
+Удаление по имени или номеру
+sql
+Копировать
+Редактировать
+
+
+
+CREATE OR REPLACE PROCEDURE delete_user(p_name TEXT, p_phone TEXT)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    DELETE FROM phonebook
+    WHERE name = p_name OR phone = p_phone;
+END;
+$$;
